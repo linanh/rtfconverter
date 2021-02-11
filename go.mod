@@ -1,4 +1,4 @@
-module github.com/linanh/rtfconvert
+module github.com/linanh/rtfconverter
 
 go 1.15
 
