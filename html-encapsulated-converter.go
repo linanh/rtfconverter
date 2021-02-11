@@ -5,42 +5,41 @@
 package rtfconverter
 
 import (
-	"errors"
 	"bytes"
-	"strconv"
-	"fmt"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"strconv"
 )
 
-var rtfFontsHtmlMap map[string]string = map[string]string {
-	"fnil": "", 	//Unknown or default fonts (the default)
-	"froman": "serif",	//Roman, proportionally spaced serif fonts	Times New Roman, Palatino
-	"fswiss": "sans-serif",	//Swiss, proportionally spaced sans serif fonts	Arial
-	"fmodern": "monospace", //	Fixed-pitch serif and sans serif fonts	Courier New, Pica
-	"fscript": "cursive", //	Script fonts	Cursive
-	"fdecor": "fantasy",	// Decorative fonts	Old English, ITC Zapf Chancery
-	"ftech": "",	// Technical, symbol, and mathematical fonts	Symbol
-	"fbidi": "",	//Arabic, Hebrew, or o
+var rtfFontsHtmlMap map[string]string = map[string]string{
+	"fnil":    "",           //Unknown or default fonts (the default)
+	"froman":  "serif",      //Roman, proportionally spaced serif fonts	Times New Roman, Palatino
+	"fswiss":  "sans-serif", //Swiss, proportionally spaced sans serif fonts	Arial
+	"fmodern": "monospace",  //	Fixed-pitch serif and sans serif fonts	Courier New, Pica
+	"fscript": "cursive",    //	Script fonts	Cursive
+	"fdecor":  "fantasy",    // Decorative fonts	Old English, ITC Zapf Chancery
+	"ftech":   "",           // Technical, symbol, and mathematical fonts	Symbol
+	"fbidi":   "",           //Arabic, Hebrew, or o
 }
 
-
 type rtfHtmlEncapsulatedInterpreter struct {
-	content 				bytes.Buffer
-	insideHtmlTagGroup 		int
-	rtfEncoding 			string
-	defaultFont 			int
-	fontTable  				map[int]*rtfFontTableItem
-	colorTable 				[]rtfColor
-	styleTag		        string
+	content            bytes.Buffer
+	insideHtmlTagGroup int
+	rtfEncoding        string
+	defaultFont        int
+	fontTable          map[int]*rtfFontTableItem
+	colorTable         []rtfColor
+	styleTag           string
 
 	// keep the initial state when a group is parsed
-	groupsInitialStates				[]rtfState
+	groupsInitialStates []rtfState
 
 	// keep the previous state of the parsed group
-	groupPreviousState		rtfState
+	groupPreviousState rtfState
 
 	// keep the current state of the parsed group
-	groupCurrentState		rtfState
+	groupCurrentState rtfState
 
 	// count how many style tag are opened
 	styleTagOpened int
@@ -49,19 +48,18 @@ type rtfHtmlEncapsulatedInterpreter struct {
 	bodyStopped bool
 }
 
-
 type rtfFontTableItem struct {
-    charsetIndex int
-    familyCode string
-    familyName string
-    familyAlternativeName string
+	charsetIndex          int
+	familyCode            string
+	familyName            string
+	familyAlternativeName string
 }
 
 type rtfState struct {
 	states map[string]string
 }
 
-func NewRtfState() (rtfState) {
+func NewRtfState() rtfState {
 	c := rtfState{
 		states: map[string]string{
 			//"f": "0", // default font
@@ -77,17 +75,17 @@ func NewRtfState() (rtfState) {
  * @param  {[type]} c rtfState)     copy( [description]
  * @return {[type]}   [description]
  */
-func (c rtfState) copy() (rtfState){
+func (c rtfState) copy() rtfState {
 	c1 := NewRtfState()
 
-	for i,v := range c1.states {
+	for i, v := range c1.states {
 		c1.states[i] = v
 	}
 
 	return c1
 }
 
-func (c rtfState) stateExists(word string) (bool){
+func (c rtfState) stateExists(word string) bool {
 	if _, ok := c.states[word]; ok {
 		return true
 	}
@@ -95,7 +93,7 @@ func (c rtfState) stateExists(word string) (bool){
 	return false
 }
 
-func (c rtfState) stateValue(word string) (string){
+func (c rtfState) stateValue(word string) string {
 	if v, ok := c.states[word]; ok {
 		return v
 	}
@@ -108,11 +106,11 @@ func (c rtfState) stateValue(word string) (string){
  * @param  {[type]} c rtfState)     hasSameStyle(c1 rtfState) (rtfState [description]
  * @return {[type]}   [description]
  */
-func (c rtfState) hasSameStyle(c1 rtfState) (bool) {
+func (c rtfState) hasSameStyle(c1 rtfState) bool {
 	cStyleStates := 0
 	c1StyleStates := 0
 
-	for stateWord,stateValue := range c.states {
+	for stateWord, stateValue := range c.states {
 		if stateType, _ := DetectWordState(stateWord); stateType == "style" {
 			cStyleStates++
 			if rStateValue, ok := c1.states[stateWord]; ok {
@@ -126,7 +124,7 @@ func (c rtfState) hasSameStyle(c1 rtfState) (bool) {
 		}
 	}
 
-	for rStateWord,_ := range c.states {
+	for rStateWord, _ := range c.states {
 		if stateType, _ := DetectWordState(rStateWord); stateType == "style" {
 			c1StyleStates++
 		}
@@ -135,7 +133,6 @@ func (c rtfState) hasSameStyle(c1 rtfState) (bool) {
 	if c1StyleStates != cStyleStates {
 		return false
 	}
-
 
 	return true
 }
@@ -151,23 +148,23 @@ type rtfColor struct {
  * @param  {[type]} c *rtfColor)    getHexCode( [description]
  * @return {[type]}   [description]
  */
-func (c *rtfColor) getHexCode() (string){
+func (c *rtfColor) getHexCode() string {
 	return fmt.Sprintf("#%x%x%x", c.r, c.g, c.b)
 }
-
 
 func (p *rtfHtmlEncapsulatedInterpreter) Parse(rtfObj RtfStructure) ([]byte, error) {
 
 	p.content = bytes.Buffer{}
 	p.insideHtmlTagGroup = 0
 
-	if (!rtfObj.IsValid()) {
+	if !rtfObj.IsValid() {
 		return nil, errors.New("The RTF file is not valid.")
 	}
 
 	p.parseElement(rtfObj.Root)
 
-	return p.content.Bytes(), nil
+	buf, _ := ConvertToUtf8(p.content.Bytes(), p.rtfEncoding)
+	return buf, nil
 }
 
 /**
@@ -177,14 +174,14 @@ func (p *rtfHtmlEncapsulatedInterpreter) Parse(rtfObj RtfStructure) ([]byte, err
  */
 func (p *rtfHtmlEncapsulatedInterpreter) parseElement(item rtfElement) {
 	switch item.(type) {
-		case *rtfGroup:
-			p.parseGroup(item.(*rtfGroup));
-		case *rtfControlSymbol:
-			p.parseControlSymbol(item.(*rtfControlSymbol));
-		case *rtfControlWord:
-			p.parseControlWord(item.(*rtfControlWord));
-		case *rtfText:
-			p.parseText(item.(*rtfText));
+	case *rtfGroup:
+		p.parseGroup(item.(*rtfGroup))
+	case *rtfControlSymbol:
+		p.parseControlSymbol(item.(*rtfControlSymbol))
+	case *rtfControlWord:
+		p.parseControlWord(item.(*rtfControlWord))
+	case *rtfText:
+		p.parseText(item.(*rtfText))
 
 	}
 }
@@ -197,15 +194,15 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseElement(item rtfElement) {
 func (p *rtfHtmlEncapsulatedInterpreter) parseGroup(item *rtfGroup) {
 	children := item.GetChildren()
 
-	isHtmlTagDestinationGroup := false;
+	isHtmlTagDestinationGroup := false
 	isStartBodyTag := false
 
 	// check if we parse a destination group that is a htmltag (a group where the first 2 childs are \*\htmltag)
-	if (item.IsDestination()) {
-		if (len(children)>=2) {
+	if item.IsDestination() {
+		if len(children) >= 2 {
 			switch children[1].(type) {
 			case *rtfControlWord:
-				if (children[1].(*rtfControlWord).GetWord() == "htmltag") {
+				if children[1].(*rtfControlWord).GetWord() == "htmltag" {
 					isHtmlTagDestinationGroup = true
 					if !p.bodyStarted && children[1].(*rtfControlWord).GetIntParameter() == 50 {
 						isStartBodyTag = true
@@ -226,18 +223,17 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseGroup(item *rtfGroup) {
 		p.parseFontTableGroup(item)
 	} else if item.IsColorTable() {
 		p.parseColorTableGroup(item)
-	} else if (item.IsStylesheet() || item.IsTrackChanges() || item.IsInfo() || item.IsListtables() || item.IsFilesTable()) {
+	} else if item.IsStylesheet() || item.IsTrackChanges() || item.IsInfo() || item.IsListtables() || item.IsFilesTable() {
 		// ignore all these groups
 	} else {
 
 		// if the first group
-		if (len(p.groupsInitialStates) == 0) {
+		if len(p.groupsInitialStates) == 0 {
 			p.groupCurrentState = NewRtfState()
 		}
 
 		// save the state of the previous group
 		p.groupsInitialStates = append(p.groupsInitialStates, p.groupCurrentState.copy())
-
 
 		// when an state is open, try to close the previous one if
 		//p.closeState()
@@ -258,7 +254,7 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseGroup(item *rtfGroup) {
 		// remove the last state from intial states array, so the last element will be the initial state of the current group
 		p.groupsInitialStates = p.groupsInitialStates[:len(p.groupsInitialStates)-1]
 
-		if (isStartBodyTag) {
+		if isStartBodyTag {
 			// we can add the styles
 			p.bodyStarted = true
 		}
@@ -267,12 +263,11 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseGroup(item *rtfGroup) {
 
 	if isHtmlTagDestinationGroup {
 		p.insideHtmlTagGroup--
-		if p.insideHtmlTagGroup < 0  {
-			p.insideHtmlTagGroup = 0;
+		if p.insideHtmlTagGroup < 0 {
+			p.insideHtmlTagGroup = 0
 		}
 	}
 }
-
 
 func (p *rtfHtmlEncapsulatedInterpreter) openState() {
 
@@ -285,68 +280,66 @@ func (p *rtfHtmlEncapsulatedInterpreter) openState() {
 	style.WriteString("style=\"")
 
 	for stateWord, stateValue := range p.groupCurrentState.states {
-		switch (stateWord) {
-			case "b":
-				if (stateValue == "1") {
-					style.WriteString("text-weight: bold;");
-				}
-			case "i":
-				if (stateValue == "1") {
-					style.WriteString("text-weight: italic;");
-				}
-			case "v":
-				if (stateValue == "0") {
-					style.WriteString("display:none;");
-				}
-			case "f":
-				fontIdx, err := strconv.Atoi(stateValue)
+		switch stateWord {
+		case "b":
+			if stateValue == "1" {
+				style.WriteString("text-weight: bold;")
+			}
+		case "i":
+			if stateValue == "1" {
+				style.WriteString("text-weight: italic;")
+			}
+		case "v":
+			if stateValue == "0" {
+				style.WriteString("display:none;")
+			}
+		case "f":
+			fontIdx, err := strconv.Atoi(stateValue)
 
-				if err == nil {
-					if fItem, ok := p.fontTable[fontIdx]; ok {
-		    			style.WriteString("font-family:")
-		    			style.WriteString(fItem.familyName)
-		    			style.WriteString(";")
-	    			}
+			if err == nil {
+				if fItem, ok := p.fontTable[fontIdx]; ok {
+					style.WriteString("font-family:")
+					style.WriteString(fItem.familyName)
+					style.WriteString(";")
 				}
-			case "fs":
-				if stateValue !="" && stateValue != "0" {
-					style.WriteString("font-size:")
-					style.WriteString(stateValue)
-					style.WriteString("px;")
-				}
-			case "ul":
-				if stateValue == "1" {
-					style.WriteString("text-decoration:underline;");
-				}
-			case "strike":
-				if stateValue == "1" {
-					style.WriteString("text-decoration:line-through;");
-				}
-			case "cf","chcfpat":
-				colorIdx, err := strconv.Atoi(stateValue)
-				if err == nil && len(p.colorTable) >= colorIdx+1 {
-					style.WriteString("color:");
-					style.WriteString(p.colorTable[colorIdx].getHexCode());
-					style.WriteString(";");
-				}
-			case "cb", "chcbpat", "highlight":
-				colorIdx, err := strconv.Atoi(stateValue)
-				if err == nil && len(p.colorTable) >= colorIdx+1 {
-					style.WriteString("background-color:");
-					style.WriteString(p.colorTable[colorIdx].getHexCode());
-					style.WriteString(";");
-				}
-			case "super":
-				if stateValue == "1" {
-					style.WriteString("vertical-align: super;");
-				}
-
+			}
+		case "fs":
+			if stateValue != "" && stateValue != "0" {
+				style.WriteString("font-size:")
+				style.WriteString(stateValue)
+				style.WriteString("px;")
+			}
+		case "ul":
+			if stateValue == "1" {
+				style.WriteString("text-decoration:underline;")
+			}
+		case "strike":
+			if stateValue == "1" {
+				style.WriteString("text-decoration:line-through;")
+			}
+		case "cf", "chcfpat":
+			colorIdx, err := strconv.Atoi(stateValue)
+			if err == nil && len(p.colorTable) >= colorIdx+1 {
+				style.WriteString("color:")
+				style.WriteString(p.colorTable[colorIdx].getHexCode())
+				style.WriteString(";")
+			}
+		case "cb", "chcbpat", "highlight":
+			colorIdx, err := strconv.Atoi(stateValue)
+			if err == nil && len(p.colorTable) >= colorIdx+1 {
+				style.WriteString("background-color:")
+				style.WriteString(p.colorTable[colorIdx].getHexCode())
+				style.WriteString(";")
+			}
+		case "super":
+			if stateValue == "1" {
+				style.WriteString("vertical-align: super;")
+			}
 
 		}
 	}
 
 	style.WriteString("\"")
-
 
 	/**
 	 *  save the last group state (the state configuration at the end group) to be used as current group initial state
@@ -364,7 +357,6 @@ func (p *rtfHtmlEncapsulatedInterpreter) closeState() {
 	p.styleTagOpened++
 	p.closeTag(p.styleTag)
 }
-
 
 func (p *rtfHtmlEncapsulatedInterpreter) openTag(tag string, attr string) {
 	p.content.WriteString("<")
@@ -410,38 +402,38 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseFontInfoGroup(item *rtfGroup) {
 
 	for _, child := range item.GetChildren() {
 		switch cobj := child.(type) {
-			case *rtfControlWord:
-				switch cobj.GetWord() {
-					case "f":
-						fontIdx = cobj.GetIntParameter()
-						p.fontTable[fontIdx] = &rtfFontTableItem{}
-					case "fnil", "froman", "fswiss", "fmodern", "fscript", "fdecor", "ftech", "fbidi":
-						// font fammily
-						if ftItem, ok := p.fontTable[fontIdx]; ok {
-							ftItem.familyCode = 	cobj.GetWord()
-						}
-					case "fcharset":
-						if ftItem, ok := p.fontTable[fontIdx]; ok {
-							ftItem.charsetIndex = cobj.GetIntParameter()
-						}
-				}
-			case *rtfText:
+		case *rtfControlWord:
+			switch cobj.GetWord() {
+			case "f":
+				fontIdx = cobj.GetIntParameter()
+				p.fontTable[fontIdx] = &rtfFontTableItem{}
+			case "fnil", "froman", "fswiss", "fmodern", "fscript", "fdecor", "ftech", "fbidi":
+				// font fammily
 				if ftItem, ok := p.fontTable[fontIdx]; ok {
-					ftItem.familyName = string(bytes.TrimRight(cobj.GetContent(), ";"))
+					ftItem.familyCode = cobj.GetWord()
 				}
-			case *rtfGroup:
-				if (cobj.IsFontAlternative()) {
-					// check alternative font
-					if len(cobj.children)>=3 {
-						switch cobj.children[2].(type) {
-							case *rtfText:
-								if ftItem, ok := p.fontTable[fontIdx]; ok {
-									ftItem.familyAlternativeName = string(cobj.children[2].(*rtfText).GetContent())
-								}
+			case "fcharset":
+				if ftItem, ok := p.fontTable[fontIdx]; ok {
+					ftItem.charsetIndex = cobj.GetIntParameter()
+				}
+			}
+		case *rtfText:
+			if ftItem, ok := p.fontTable[fontIdx]; ok {
+				ftItem.familyName = string(bytes.TrimRight(cobj.GetContent(), ";"))
+			}
+		case *rtfGroup:
+			if cobj.IsFontAlternative() {
+				// check alternative font
+				if len(cobj.children) >= 3 {
+					switch cobj.children[2].(type) {
+					case *rtfText:
+						if ftItem, ok := p.fontTable[fontIdx]; ok {
+							ftItem.familyAlternativeName = string(cobj.children[2].(*rtfText).GetContent())
 						}
-
 					}
+
 				}
+			}
 		}
 	}
 }
@@ -454,7 +446,7 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseFontInfoGroup(item *rtfGroup) {
  * @return {[type]}   [description]
  */
 func (p *rtfHtmlEncapsulatedInterpreter) parseColorTableGroup(item *rtfGroup) {
-	if (!item.IsColorTable()) {
+	if !item.IsColorTable() {
 		return
 	}
 
@@ -465,33 +457,33 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseColorTableGroup(item *rtfGroup) {
 	}
 	for _, child := range item.GetChildren() {
 		switch child.(type) {
-			case *rtfControlWord:
-				switch (child.(*rtfControlWord).GetWord()) {
-					case "red":
-						color.r = child.(*rtfControlWord).GetIntParameter()
-					case "green":
-						color.g = child.(*rtfControlWord).GetIntParameter()
-					case "blue":
-						color.b = child.(*rtfControlWord).GetIntParameter()
-				}
+		case *rtfControlWord:
+			switch child.(*rtfControlWord).GetWord() {
+			case "red":
+				color.r = child.(*rtfControlWord).GetIntParameter()
+			case "green":
+				color.g = child.(*rtfControlWord).GetIntParameter()
+			case "blue":
+				color.b = child.(*rtfControlWord).GetIntParameter()
+			}
 
-			case *rtfText:
-				// an end of color if marked by a ; text
-				p.colorTable = append(p.colorTable, color)
+		case *rtfText:
+			// an end of color if marked by a ; text
+			p.colorTable = append(p.colorTable, color)
 
-				// reset color
-				color = rtfColor{
-					r: 0,
-					g: 0,
-					b: 0,
-				}
+			// reset color
+			color = rtfColor{
+				r: 0,
+				g: 0,
+				b: 0,
+			}
 		}
 	}
 }
 
 func (p *rtfHtmlEncapsulatedInterpreter) parseControlSymbol(item *rtfControlSymbol) {
 
-	if (p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1") {
+	if p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1" {
 		/* Outside of an HTMLTAG destination groupIgnore and skip any text and RTF control words that are suppressed
 		by any HTMLRTF control word other than the \fN control word. The de-encapsulating RTF reader SHOULD track the
 		current font even when the corresponding \fN control word is inside of a fragment that is disabled with an HTMLRTF control word.
@@ -500,30 +492,29 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseControlSymbol(item *rtfControlSymb
 	}
 
 	switch item.GetSymbol() {
-		case "'":
-			// convert the string, reprezenting an hex number to a decimal number
-			v, err := strconv.ParseInt(item.GetParameter(), 16, 16)
+	case "'":
+		// convert the string, reprezenting an hex number to a decimal number
+		v, err := strconv.ParseInt(item.GetParameter(), 16, 16)
 
-			if (err == nil) {
-				b := make([]byte, 2)
-				binary.LittleEndian.PutUint16(b, uint16(v))
-				b = bytes.TrimRight(b, "\x00")
-				r, _ := ConvertToUtf8(b, p.rtfEncoding);
-				p.content.Write(r)
-			}
+		if err == nil {
+			b := make([]byte, 2)
+			binary.LittleEndian.PutUint16(b, uint16(v))
+			b = bytes.TrimRight(b, "\x00")
+			p.content.Write(b)
+		}
 
-			/*
+		/*
 			p.content.WriteString("%x")
 			p.content.WriteString(item.GetParameter())
-			*/
+		*/
 	}
 
-	if (p.insideHtmlTagGroup > 0) {
+	if p.insideHtmlTagGroup > 0 {
 		switch item.GetSymbol() {
-			case "~":
-				p.content.WriteString("&nbsp;")
-			case "_":
-				p.content.WriteString("&shy;")
+		case "~":
+			p.content.WriteString("&nbsp;")
+		case "_":
+			p.content.WriteString("&shy;")
 		}
 	}
 }
@@ -535,20 +526,20 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseControlSymbol(item *rtfControlSymb
  */
 
 func (p *rtfHtmlEncapsulatedInterpreter) updateState(word string, value string) {
-	stateScenario, stateValueType  := DetectWordState(word)
+	stateScenario, stateValueType := DetectWordState(word)
 
 	var stateValue string
 
-	switch (stateValueType) {
-		case "flag":
-			if (value == "0") {
-				stateValue = "0" // off
-			} else {
-				stateValue = "1" // on
-			}
-			break;
-		case "value":
-			stateValue = value
+	switch stateValueType {
+	case "flag":
+		if value == "0" {
+			stateValue = "0" // off
+		} else {
+			stateValue = "1" // on
+		}
+		break
+	case "value":
+		stateValue = value
 	}
 
 	// update the current state with the new value
@@ -565,44 +556,44 @@ func (p *rtfHtmlEncapsulatedInterpreter) updateState(word string, value string) 
 
 func (p *rtfHtmlEncapsulatedInterpreter) parseControlWord(item *rtfControlWord) {
 	switch item.GetWord() {
-		case  "htmlrtf":
-			p.updateState(item.GetWord(), item.GetParameter())
-			return
+	case "htmlrtf":
+		p.updateState(item.GetWord(), item.GetParameter())
+		return
 	}
 
-	if (p.insideHtmlTagGroup > 0) {
+	if p.insideHtmlTagGroup > 0 {
 		// no control words will be added if are inside an htmltag
-		switch  item.GetWord() {
-			case "u" :
-				p.content.WriteString("&#")
-				p.content.WriteString(item.GetParameter())
-				p.content.WriteString(";")
-				return
-			case "lquote":
-				p.content.WriteString("&lsquo;")
-				return
-			case "rquote":
-				p.content.WriteString("&rsquo;")
-				return
-			case "ldblquote":
-				p.content.WriteString("&ldquo;")
-				return
-			case "rdblquote":
-				p.content.WriteString("&rdquo;")
-				return
-			case "bullet":
-				p.content.WriteString("&bull;")
-				return
-			case "endash":
-				p.content.WriteString("&ndash;")
-				return
-			case "emdash":
-				p.content.WriteString("&mdash;")
-				return
+		switch item.GetWord() {
+		case "u":
+			p.content.WriteString("&#")
+			p.content.WriteString(item.GetParameter())
+			p.content.WriteString(";")
+			return
+		case "lquote":
+			p.content.WriteString("&lsquo;")
+			return
+		case "rquote":
+			p.content.WriteString("&rsquo;")
+			return
+		case "ldblquote":
+			p.content.WriteString("&ldquo;")
+			return
+		case "rdblquote":
+			p.content.WriteString("&rdquo;")
+			return
+		case "bullet":
+			p.content.WriteString("&bull;")
+			return
+		case "endash":
+			p.content.WriteString("&ndash;")
+			return
+		case "emdash":
+			p.content.WriteString("&mdash;")
+			return
 		}
 	} else {
 
-		if (item.word != "f" && p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1") {
+		if item.word != "f" && p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1" {
 			/* Outside of an HTMLTAG destination groupIgnore and skip any text and RTF control words that are suppressed
 			by any HTMLRTF control word other than the \fN control word. The de-encapsulating RTF reader SHOULD track the
 			current font even when the corresponding \fN control word is inside of a fragment that is disabled with an HTMLRTF control word.
@@ -611,36 +602,36 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseControlWord(item *rtfControlWord) 
 		}
 
 		// outside html group
-		switch  item.GetWord() {
-			case "line" : // new line
-				//p.content.WriteString("<br>")
-				return
-			case "par" :
-				p.content.WriteString("\r\n")
-				return
-			case "tab" : // tab
-				p.content.WriteString("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;")
-				return
-			case "deff":
-	        	p.defaultFont = item.GetIntParameter()
-	        case "ansi","mac","pc","pca":
-	        	p.rtfEncoding, _ = GetEncodingFromCodepage(item.GetWord())
-	        	return
-	        case "ansicpg":
-	        	 if item.GetIntParameter()>0 {
-	        		p.rtfEncoding, _ = GetEncodingFromCodepage(item.GetParameter())
-	        	}
-	        	return
-	        case "f", "fs":
-	        	// font
-	        	p.updateState(item.GetWord(), item.GetParameter())
-	        	return
-	     }
+		switch item.GetWord() {
+		case "line": // new line
+			//p.content.WriteString("<br>")
+			return
+		case "par":
+			p.content.WriteString("\r\n")
+			return
+		case "tab": // tab
+			p.content.WriteString("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;")
+			return
+		case "deff":
+			p.defaultFont = item.GetIntParameter()
+		case "ansi", "mac", "pc", "pca":
+			p.rtfEncoding, _ = GetEncodingFromCodepage(item.GetWord())
+			return
+		case "ansicpg":
+			if item.GetIntParameter() > 0 {
+				p.rtfEncoding, _ = GetEncodingFromCodepage(item.GetParameter())
+			}
+			return
+		case "f", "fs":
+			// font
+			p.updateState(item.GetWord(), item.GetParameter())
+			return
+		}
 	}
 }
 
 func (p *rtfHtmlEncapsulatedInterpreter) parseText(item *rtfText) {
-	if (p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1") {
+	if p.groupCurrentState.stateExists("htmlrtf") && p.groupCurrentState.stateValue("htmlrtf") == "1" {
 		/* Outside of an HTMLTAG destination groupIgnore and skip any text and RTF control words that are suppressed
 		by any HTMLRTF control word other than the \fN control word. The de-encapsulating RTF reader SHOULD track the
 		current font even when the corresponding \fN control word is inside of a fragment that is disabled with an HTMLRTF control word.
@@ -649,10 +640,8 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseText(item *rtfText) {
 	}
 
 	// ignore any text outside an htmlTag group
-	t, _ := ConvertToUtf8(item.GetContent(), p.rtfEncoding)
-	p.content.Write(t)
+	p.content.Write(item.GetContent())
 }
-
 
 /**
  * some rtfControlWord are states; this function return an scope and a value type for a control word
@@ -664,29 +653,29 @@ func (p *rtfHtmlEncapsulatedInterpreter) parseText(item *rtfText) {
  */
 
 func DetectWordState(word string) (stateScope string, stateValueType string) {
-	switch (word) {
-		case "htmlrtf": // HTMLRTF control word identifies fragments of RTF that were not in the original HTML content
-			stateScope = "other"
-			stateValueType = "flag"
-		case "b", 	// bold
-			"i",	// italic
-			"v",	// hidden
-			"ul",  // underline start
-			"uldone",  // underline stop
-			"strike",  // strike
-			"super": // sup
-			stateScope = "style"
-			stateValueType = "flag"
-		case "f", // font index from font table
-			 "fs", // Font size in half-points (the default is 24)
+	switch word {
+	case "htmlrtf": // HTMLRTF control word identifies fragments of RTF that were not in the original HTML content
+		stateScope = "other"
+		stateValueType = "flag"
+	case "b", // bold
+		"i",      // italic
+		"v",      // hidden
+		"ul",     // underline start
+		"uldone", // underline stop
+		"strike", // strike
+		"super":  // sup
+		stateScope = "style"
+		stateValueType = "flag"
+	case "f", // font index from font table
+		"fs", // Font size in half-points (the default is 24)
 
-			 "chcfpat", // N is the color of the background pattern, specified as an index into the document's color table (Character Borders and Shading) - we can use it as font color
-			 "cf", // foreground color (the default is 0) - font color
+		"chcfpat", // N is the color of the background pattern, specified as an index into the document's color table (Character Borders and Shading) - we can use it as font color
+		"cf",      // foreground color (the default is 0) - font color
 
-			 "cb", //Background color (the default is 0)
-			 "chcbpat": // N is the fill color, specified as an index into the document's color table. -  (Character Borders and Shading) - we can use it as backgorund color
-			stateScope = "style"
-			stateValueType = "value"
+		"cb",      //Background color (the default is 0)
+		"chcbpat": // N is the fill color, specified as an index into the document's color table. -  (Character Borders and Shading) - we can use it as backgorund color
+		stateScope = "style"
+		stateValueType = "value"
 	}
 	return
 }
